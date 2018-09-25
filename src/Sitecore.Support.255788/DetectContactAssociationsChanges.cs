@@ -1,4 +1,4 @@
-﻿namespace Sitecore.ListManagement.ContentSearch.Pipelines.UpdateContactAssociations
+﻿namespace Sitecore.Support.ListManagement.ContentSearch.Pipelines.UpdateContactAssociations
 {
   using System;
   using System.Linq;
@@ -9,6 +9,7 @@
   using Sitecore.Diagnostics;
   using Sitecore.ListManagement.Configuration;
   using Sitecore.ListManagement.ContentSearch.Model;
+  using Sitecore.ListManagement.ContentSearch.Pipelines;
 
   public class DetectContactAssociationsChanges : ListProcessor
   {
@@ -45,18 +46,18 @@
           return;
         }
 
-        string initialTagFormat = string.Format("{0}:{1}", Constants.ContactListAssociationTagName, contactList.Id);
-        string firstIncludedListTagFormat = string.Format("{0}:{1}", Constants.ContactListAssociationTagName, firstIncludedList.Id);
+        string initialTagFormat = string.Format("{0}:{1}", Sitecore.ListManagement.Constants.ContactListAssociationTagName, contactList.Id);
+        string firstIncludedListTagFormat = string.Format("{0}:{1}", Sitecore.ListManagement.Constants.ContactListAssociationTagName, firstIncludedList.Id);
 
         Expression<Func<ContactData, bool>> predicate = doc => doc.Tags.Contains(firstIncludedListTagFormat);
         foreach (var includedListId in source.IncludedLists.Skip(1))
         {
-          var tagFormat = string.Format("{0}:{1}", Constants.ContactListAssociationTagName, includedListId);
+          var tagFormat = string.Format("{0}:{1}", Sitecore.ListManagement.Constants.ContactListAssociationTagName, includedListId);
           predicate = PredicateBuilder.Or(predicate, doc => doc.Tags.Contains(tagFormat));
         }
         foreach (var excludedListId in source.ExcludedLists)
         {
-          var tagFormat = string.Format("{0}:{1}", Constants.ContactListAssociationTagName, excludedListId);
+          var tagFormat = string.Format("{0}:{1}", Sitecore.ListManagement.Constants.ContactListAssociationTagName, excludedListId);
           predicate = PredicateBuilder.And(predicate, doc => !doc.Tags.Contains(tagFormat));
         }
 
@@ -64,11 +65,20 @@
           searchContext.GetQueryable<ContactData>()
             .Where(PredicateBuilder.And(predicate, doc => !doc.Tags.Contains(initialTagFormat)))
             .ToArray();
-
-        args.RemoveAssociationsContacts =
-          searchContext.GetQueryable<ContactData>()
-            .Where(PredicateBuilder.And(doc => doc.Tags.Contains(initialTagFormat), PredicateBuilder.Not(predicate)))
-            .ToArray();
+        // The fix: remove contacts related to the source list in case it was deleted from the "Included Lists" of the particular list
+        if (args.ContactList.Source.IncludedLists.Count < args.InitialContactList.Source.IncludedLists.Count)
+        {
+          foreach (var listId in args.InitialContactList.Source.IncludedLists)
+          {
+            if (!args.ContactList.Source.IncludedLists.Contains(listId))
+            {
+              string listTag = string.Format("{0}:{1}", Sitecore.ListManagement.Constants.ContactListAssociationTagName, listId);
+              args.RemoveAssociationsContacts =
+                searchContext.GetQueryable<ContactData>()
+                  .Where(doc => doc.Tags.Contains(initialTagFormat) && doc.Tags.Contains(listTag)).ToArray();
+            }
+          }
+        }
       }
     }
   }
